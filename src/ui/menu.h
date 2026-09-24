@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 #include <functional>
+#include "layout.h"
 
 // Menu item for both root and group items
 struct MenuItem {
@@ -93,8 +94,18 @@ private:
     static MenuCallback callback;
     static bool keyWasPressed;
     
+#ifdef PORKOCALC
+    // Scale the visible row counts to the board's main-canvas height (LAYOUT.mainH() -> MAIN_H)
+    // instead of hardcoding the Cardputer's 4. The root list starts at y=25 with 18px rows; the
+    // popup submenu uses 24px of header plus 16px rows. Cardputer (mainH 107) still works out to 4;
+    // the taller PicoCalc panel (mainH 292) shows ~14 root rows and enough popup rows that any
+    // group fits without scrolling - filling down to this screen's limit, not the Cardputer's.
+    static constexpr uint8_t VISIBLE_ITEMS = (LAYOUT.mainH() - 25) / 18;
+    static constexpr uint8_t MODAL_VISIBLE = (LAYOUT.mainH() - 50) / 16;
+#else
     static const uint8_t VISIBLE_ITEMS = 4;
     static const uint8_t MODAL_VISIBLE = 4;
+#endif
     static uint8_t rootHintIndex[];
     static uint8_t attackHintIndex[];
     static uint8_t reconHintIndex[];

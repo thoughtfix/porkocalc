@@ -2656,6 +2656,10 @@ void Mood::draw(M5Canvas& canvas) {
     int bubbleX, bubbleY;
     int lineHeight = 11;
     int bubbleH = 8 + (numLines * lineHeight);  // Padding + actual lines
+    // The speech bubble belongs next to the pig, which is anchored to the bottom on tall canvases.
+    // The space above the pig is reserved for tickers / notifications, so the bubble follows the pig
+    // down by the same offset. 0 on the Cardputer.
+    const int sceneOff = sceneBottomOffset(canvas);
     
     // Cap bubble height to fit above grass (y=91)
     if (bubbleH > 88) bubbleH = 88;
@@ -2674,12 +2678,12 @@ void Mood::draw(M5Canvas& canvas) {
         // Pig at left edge → bubble floats to RIGHT of pig (horizontal arrow pointing left)
         mode = BubbleMode::LEFT_EDGE;
         bubbleX = pigX + 108 + 6;  // Right of pig body + 6px gap
-        bubbleY = 23;  // At pig ear level
+        bubbleY = 23 + sceneOff;  // at pig ear level (pig is bottom-anchored)
     } else if (atRightEdge) {
         // Pig at right edge → bubble floats to LEFT of pig (horizontal arrow pointing right)
         mode = BubbleMode::RIGHT_EDGE;
         bubbleX = pigX - bubbleW - 6;  // Left of pig + 6px gap
-        bubbleY = 23;  // At pig ear level
+        bubbleY = 23 + sceneOff;  // at pig ear level (pig is bottom-anchored)
     } else {
         // Pig in center → bubble floats ABOVE pig but not too far
         // Position bubble so it doesn't cover pig's face but stays close
@@ -2689,12 +2693,13 @@ void Mood::draw(M5Canvas& canvas) {
         // Pig head at Y=23, ears start there
         // Arrow tip should point at pig's ear area (Y ~20)
         // Bubble should not float too far from head - min Y = 2 (near top)
-        int arrowTipY = 20;  // Point at pig's ear area
+        int arrowTipY = 20 + sceneOff;  // point at pig's ear area (pig is bottom-anchored)
         int bubbleBottom = arrowTipY - ARROW_LENGTH;  // Y = 12
         bubbleY = bubbleBottom - bubbleH;
         
-        // Clamp bubbleY to minimum of 2 (near top) - taller bubbles stay close to head
-        if (bubbleY < 2) bubbleY = 2;
+        // Keep the bubble near the pig (never up in the ticker/notification zone above).
+        int bubbleMinY = 2 + sceneOff;
+        if (bubbleY < bubbleMinY) bubbleY = bubbleMinY;
     }
     
     // Clamp bubble to screen edges (prevent overflow)
@@ -2737,7 +2742,7 @@ void Mood::draw(M5Canvas& canvas) {
         canvas.fillTriangle(arrowTipX, arrowY, arrowBaseX, arrowY - 6, arrowBaseX, arrowY + 6, COLOR_FG);
     } else {
         // Center mode → vertical arrow pointing DOWN toward pig's head
-        int arrowTipY = 20;  // Point at pig's ear area (updated for new head Y)
+        int arrowTipY = 20 + sceneOff;  // point at pig's ear area (pig is bottom-anchored)
         int arrowBaseY = arrowTipY - ARROW_LENGTH;
         int arrowLeftX = pigHeadCenterX - 6;
         int arrowRightX = pigHeadCenterX + 6;

@@ -1,3 +1,69 @@
+# PORKOCALC v0.3
+
+### PorkChop port for the ClockworkPi PicoCalc with a Waveshare ESP32-S3-Pico core
+### BETA BUILD FOR TESTERS
+
+<p align="center">
+  <img src="images/porkocalc.jpg" alt="Porkocalc running">
+</p>
+
+This is pre-release software for experienced users to test. The following are not yet thoroughly tested:
+
+1: GPS accuracy. I have not taken it out driving yet.
+2: Any offensive modes. I have not taken them to a closed location yet. These modes are inherited from M5PorkChop and are not the focus. Porkocalc is a recon device, not an attack device. It never auto-boots into an attack mode.
+3: Validity of the WARHOG logs.
+
+All of this comes with no warranty, especially those untested bits. See [DISCLAIMERS.md](DISCLAIMERS.md) before testing any modes. Found a bug? Open a GitHub issue with your board revision and a serial log. Don't be a skid.
+
+---
+
+## About Porkocalc
+
+**[M5PorkChop](https://github.com/0ct0sec/M5PORKCHOP) running on a [ClockworkPi PicoCalc](https://www.clockworkpi.com/picocalc) with a [Waveshare ESP32-S3-Pico](https://www.waveshare.com/wiki/ESP32-S3-Pico).**
+
+Porkocalc is a **port**, not a rewrite. The pig, the WiFi/BLE recon, the wardriving, the spectrum
+analyzer - all of that adapted from **0ct0's M5PorkChop** (please [star the original](https://github.com/0ct0sec/M5PORKCHOP)).
+What Porkocalc adds is a board target that runs it on the PicoCalc's 320×320 screen and 67-key
+keyboard via the [`picocalc-esp32`](https://github.com/thoughtfix/picocalc-esp32) driver + Cardputer
+compatibility layer. It is a **recon device, not an attack device** - it never auto-boots into an
+attack mode.
+
+> New to this? The PicoCalc is a Raspberry-Pi-Pico-socket handheld. Swap the Pico for a Waveshare
+> ESP32-S3-Pico (no wiring changes) and flash this firmware.
+
+## What's different on the PicoCalc
+
+- Full-screen 320×320 layout: status/detection tickers up top, the pig anchored at the bottom, a
+  fullscreen spectrum + downward waterfall.
+- OPTIONAL GPS on the external side header (attach/remove without opening the case). 
+- Recon-only: attack modes never auto-start.
+
+## Build & flash
+
+Porkocalc keeps the Cardputer build **and** adds a PicoCalc build; pick the env:
+
+```sh
+# PicoCalc (Porkocalc) - needs the picocalc-esp32 dependency, fetched automatically
+pio run -e picocalc -t upload
+
+# original M5Cardputer target (unchanged)
+pio run -e m5cardputer -t upload
+```
+
+Flash through the **ESP32-S3-Pico's own USB-C**, not the PicoCalc's. The `picocalc-esp32` library
+is pulled in automatically by PlatformIO (see `platformio.ini`). To develop both repos side by
+side, point that dependency at a local checkout - details in `platformio.ini`.
+
+- **Known issues & TODO:** [KNOWN_ISSUES.md](KNOWN_ISSUES.md) (GPS field test, battery gauge - the honest list)
+- **Credits:** [CREDITS.md](CREDITS.md) · **License:** MIT ([LICENSE](LICENSE)) - same as upstream
+- **The driver library:** [picocalc-esp32](https://github.com/thoughtfix/picocalc-esp32)
+
+---
+
+*Everything below is 0ct0's original M5PorkChop README, preserved as-is.*
+
+---
+
 ```
                     Volume Zero, Issue 3, Phile 1 of 1
 

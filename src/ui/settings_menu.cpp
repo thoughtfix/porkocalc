@@ -694,13 +694,14 @@ static bool setSettingValue(SettingId id, int value) {
             Config::gps().source = newSource;
             // Auto-set pins based on source selection
             if (newSource == GPSSource::GROVE) {
-                Config::gps().rxPin = 1;
-                Config::gps().txPin = 2;
+                Config::gps().rxPin = GrovePins::RX;
+                Config::gps().txPin = GrovePins::TX;
             } else if (newSource == GPSSource::CAP_LORA) {
                 Config::gps().rxPin = CapLoraPins::GPS_RX;
                 Config::gps().txPin = CapLoraPins::GPS_TX;
             }
             // CUSTOM: leave pins as-is
+            enforceBoardGpsPins(Config::gps());  // Porkocalc: always the side-header pins
             return true;
         }
         case SET_GPS_PWRSAVE: {
@@ -726,6 +727,7 @@ static bool setSettingValue(SettingId id, int value) {
             if (Config::gps().rxPin == newVal) return false;
             Config::gps().rxPin = newVal;
             Config::gps().source = GPSSource::CUSTOM;
+            enforceBoardGpsPins(Config::gps());  // Porkocalc: custom pins are not allowed
             return true;
         }
         case SET_GPS_TX: {
@@ -733,6 +735,7 @@ static bool setSettingValue(SettingId id, int value) {
             if (Config::gps().txPin == newVal) return false;
             Config::gps().txPin = newVal;
             Config::gps().source = GPSSource::CUSTOM;
+            enforceBoardGpsPins(Config::gps());  // Porkocalc: custom pins are not allowed
             return true;
         }
         case SET_GPS_TZ: {

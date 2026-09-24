@@ -17,6 +17,7 @@
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
 #include "../piglet/weather.h"
+#include "ticker.h"
 #include "../modes/oink.h"
 #include "../modes/donoham.h"
 #include "../modes/warhog.h"
@@ -70,6 +71,24 @@ uint16_t getColorFG() {
     uint8_t idx = Config::personality().themeIndex;
     if (idx >= THEME_COUNT) idx = 0;
     return THEMES[idx].fg;
+}
+
+// Battery: needs recent PicoCalc STM32 firmware (version reg != 0); older firmware -> N/A. A fresh
+// AXP2101 fuel gauge may read 100% until one charge->discharge cycle calibrates it (then it's real).
+const char* batteryFieldStr(int level) {
+    static char buf[8];
+#ifdef PORKOCALC
+    // Some PicoCalc units run old STM32 firmware that reports a hardcoded 100% (version reads 0).
+    // Read the version once; on those, report N/A rather than a meaningless number.
+    static int fwVer = -2;  // -2 = not yet read
+    if (fwVer == -2) fwVer = M5.stm32().firmwareVersion();
+    if (fwVer <= 0) {
+        snprintf(buf, sizeof(buf), "N/A");
+        return buf;
+    }
+#endif
+    snprintf(buf, sizeof(buf), "%d%%", level);
+    return buf;
 }
 
 uint16_t getColorBG() {
@@ -205,8 +224,11 @@ void Display::showLoot(const String& ssid) {
 extern Porkchop porkchop;
 
 void Display::init() {
-    M5.Display.setRotation(1);
-    
+    // Rotation comes from the active board profile (Cardputer=1 landscape, PicoCalc=0 upright).
+    M5.Display.setRotation(LAYOUT.rotation);
+    // Clear the whole panel so any area outside the centered UI (the PicoCalc letterbox) is clean.
+    M5.Display.fillScreen(TFT_BLACK);
+
     // CRITICAL: Set 8-bit mode for display AND sprites to avoid color conversion crashes
     // Must explicitly set sprite color depth - they don't inherit from display
     // 8-bit RGB332 saves ~50% memory: 240×135×3 sprites × 1 byte = ~97KB vs ~194KB
@@ -216,12 +238,21 @@ void Display::init() {
     M5.Display.setTextColor(COLOR_FG);
     
     // Create canvas sprites - then explicitly set them to 8-bit RGB332
+#ifdef PORKOCALC
+    // Fullscreen canvases are large (mainCanvas ~93KB at 8bpp on the 320x320 panel), too big for
+    // internal RAM next to WiFi/BLE. Put them in PSRAM (the S3-Pico has 2MB) and set depth before
+    // createSprite so the buffer is allocated at the right size and place. The Cardputer keeps them
+    // in internal RAM (no PSRAM, and 240x135 is small).
+    topBar.setPsram(true);     topBar.setColorDepth(8);
+    mainCanvas.setPsram(true); mainCanvas.setColorDepth(8);
+    bottomBar.setPsram(true);  bottomBar.setColorDepth(8);
+#endif
     topBar.createSprite(DISPLAY_W, TOP_BAR_H);
     topBar.setColorDepth(8);
-    
+
     mainCanvas.createSprite(DISPLAY_W, MAIN_H);
     mainCanvas.setColorDepth(8);
-    
+
     bottomBar.createSprite(DISPLAY_W, BOTTOM_BAR_H);
     bottomBar.setColorDepth(8);
     
@@ -308,6 +339,9 @@ void Display::update() {
             Weather::drawClouds(mainCanvas, COLOR_FG);
             // Draw weather effects (rain, wind particles) over avatar
             Weather::draw(mainCanvas, COLOR_FG, COLOR_BG);
+            // Idle isn't scanning, so no detection ticker -- system status chyron + GPS status.
+            Ticker::drawStatus(mainCanvas, mode, 0);
+            Ticker::drawGps(mainCanvas, mode, 1);
             // Draw mood bubble LAST so it's always on top
             Mood::draw(mainCanvas);
             break;
@@ -322,6 +356,10 @@ void Display::update() {
             Weather::drawClouds(mainCanvas, COLOR_FG);
             // Draw weather effects (rain, wind particles) over avatar
             Weather::draw(mainCanvas, COLOR_FG, COLOR_BG);
+            // Scanning: detection ticker, system status chyron, then GPS status.
+            Ticker::drawDetection(mainCanvas, mode, 0);
+            Ticker::drawStatus(mainCanvas, mode, 1);
+            Ticker::drawGps(mainCanvas, mode, 2);
             // Draw mood bubble LAST so it's always on top
             Mood::draw(mainCanvas);
             break;
@@ -473,9 +511,11 @@ void Display::clear() {
 
 void Display::pushAll() {
     M5.Display.startWrite();
-    topBar.pushSprite(0, 0);
-    mainCanvas.pushSprite(0, TOP_BAR_H);
-    bottomBar.pushSprite(0, DISPLAY_H - BOTTOM_BAR_H);
+    // UI_ORIGIN_* centers the 240x135 layout on the PicoCalc's 320x320 panel; it's (0,0) on the
+    // Cardputer. See display.h.
+    topBar.pushSprite(UI_ORIGIN_X, UI_ORIGIN_Y);
+    mainCanvas.pushSprite(UI_ORIGIN_X, UI_ORIGIN_Y + TOP_BAR_H);
+    bottomBar.pushSprite(UI_ORIGIN_X, UI_ORIGIN_Y + DISPLAY_H - BOTTOM_BAR_H);
     M5.Display.endWrite();
 
     if (topBarMessageTwoLineActive) {
@@ -684,7 +724,7 @@ void Display::drawTopBar() {
     statusBuf[2] = mlStatus ? 'M' : '-';
     statusBuf[3] = '\0';
     char rightBuf[32];
-    snprintf(rightBuf, sizeof(rightBuf), "%d%% %s %s", battLevel, statusBuf, timeBuf);
+    snprintf(rightBuf, sizeof(rightBuf), "%s %s %s", batteryFieldStr(battLevel), statusBuf, timeBuf);
     int rightWidth = topBar.textWidth(rightBuf);
     
     // Truncate left string if it would overlap right side
@@ -1280,6 +1320,11 @@ void Display::showBootSplash() {
     // Reset display state for main UI compatibility
     M5.Display.setTextDatum(top_left);
     M5.Display.setTextSize(1);
+
+    // Clear the whole panel so no splash pixels remain outside the main UI area. On the Cardputer
+    // the main UI fills the panel and would cover them anyway; on the PicoCalc the UI is centered
+    // (or, once redesigned, fullscreen), so the splash must be wiped explicitly.
+    M5.Display.fillScreen(COLOR_BG);
 }
 
 

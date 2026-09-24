@@ -1,6 +1,7 @@
 // HOG ON SPECTRUM Mode - WiFi Spectrum Analyzer Implementation
 
 #include "spectrum.h"
+#include "../ui/display.h"  // LAYOUT (board layout), COLOR_*
 #include "oink.h"
 #include "../core/config.h"
 #include "../audio/sfx.h"
@@ -25,16 +26,21 @@
 #include <string.h>
 
 // Layout constants - spectrum + waterfall + channel labels + status bar
-const int SPECTRUM_LEFT = 20;       // Space for dB labels
-const int SPECTRUM_RIGHT = 238;     // Right edge
-const int SPECTRUM_WIDTH = 218;     // SPECTRUM_RIGHT - SPECTRUM_LEFT
-const int SPECTRUM_TOP = 2;         // Top margin
-const int SPECTRUM_BOTTOM = 56;     // Lowered to give more vertical range
-const int WATERFALL_TOP = 58;       // Waterfall starts here
-const int WATERFALL_ROWS = 22;      // Number of history rows
-const int WATERFALL_BOTTOM = 80;    // WATERFALL_TOP + WATERFALL_ROWS
-const int CHANNEL_LABEL_Y = 82;     // Channel number row
-const int XP_BAR_Y = 94;            // Filter/status bar
+// Spectrum + waterfall geometry. Runtime, not compile-time: computeSpectrumLayout() sizes these
+// from the active board layout at init (Cardputer keeps the compact numbers below; Porkocalc fills
+// the width and gives the waterfall the bulk of the tall canvas). The old fixed 240x107-era values
+// were baked in only because the buffers were static .bss to dodge the Cardputer's heap
+// fragmentation; on this chip we allocate them (in PSRAM) sized to the screen.
+static int SPECTRUM_LEFT = 20;      // space for dB labels
+static int SPECTRUM_RIGHT = 238;    // right edge
+static int SPECTRUM_WIDTH = 218;    // SPECTRUM_RIGHT - SPECTRUM_LEFT
+static int SPECTRUM_TOP = 2;        // top margin
+static int SPECTRUM_BOTTOM = 56;    // bottom of the spectrum bar band
+static int WATERFALL_TOP = 58;      // waterfall starts here
+static int WATERFALL_ROWS = 22;     // history rows (== waterfall pixel height)
+static int WATERFALL_BOTTOM = 80;   // WATERFALL_TOP + WATERFALL_ROWS
+static int CHANNEL_LABEL_Y = 82;    // channel number row
+static int XP_BAR_Y = 94;           // filter/status bar
 
 // RSSI scale
 const int8_t RSSI_MIN = -95;        // Bottom of scale (weak signals)
@@ -96,10 +102,12 @@ static const float SINC_LUT[45] = {
 };
 
 // Spectrum analyzer buffers (static allocation - no heap)
-static int8_t spectrumBuffer[SPECTRUM_WIDTH];           // Current frame RSSI per column
-static int8_t spectrumPersist[SPECTRUM_WIDTH];          // Persistence (rolling average)
-static int8_t spectrumPeak[SPECTRUM_WIDTH];             // Peak hold per column
-static uint8_t waterfallBuffer[WATERFALL_ROWS][SPECTRUM_WIDTH];  // History (0-255 intensity)
+// Allocated once at init(), sized to the layout above. waterfallBuffer is a flat [rows*width]
+// buffer indexed as [row * SPECTRUM_WIDTH + col].
+static int8_t* spectrumBuffer = nullptr;
+static int8_t* spectrumPersist = nullptr;
+static int8_t* spectrumPeak = nullptr;
+static uint8_t* waterfallBuffer = nullptr;
 static uint8_t waterfallWriteRow = 0;                   // Current write position (circular)
 static uint32_t lastWaterfallUpdate = 0;
 static const uint32_t WATERFALL_UPDATE_MS = 100;        // 10 FPS waterfall scroll
@@ -224,7 +232,63 @@ static void updateChannelStats(uint8_t channel, int8_t rssi) {
     }
 }
 
+// Size the spectrum + waterfall geometry to the active board layout. Cardputer keeps the compact
+// numbers; a taller canvas (Porkocalc's fullscreen) gets a bigger spectrum band and a waterfall
+// that fills the bulk of the height.
+static void computeSpectrumLayout() {
+    const int W = LAYOUT.uiW;       // main canvas width  (240 Cardputer / 320 Porkocalc)
+    const int H = LAYOUT.mainH();   // main canvas height (107 Cardputer / 292 Porkocalc)
+    SPECTRUM_LEFT = 20;
+    SPECTRUM_RIGHT = W - 2;
+    SPECTRUM_WIDTH = SPECTRUM_RIGHT - SPECTRUM_LEFT;
+    SPECTRUM_TOP = 2;
+    if (H <= 120) {
+        // Cardputer-class compact layout (unchanged).
+        SPECTRUM_BOTTOM = 56;
+        WATERFALL_TOP = 58;
+        WATERFALL_BOTTOM = 80;
+        CHANNEL_LABEL_Y = 82;
+        XP_BAR_Y = 94;
+    } else {
+        // Fullscreen: a bigger spectrum band on top, then a tall waterfall filling the rest, with
+        // the channel labels and filter/status bar pinned near the bottom.
+        SPECTRUM_BOTTOM = 92;
+        XP_BAR_Y = H - 12;
+        CHANNEL_LABEL_Y = XP_BAR_Y - 14;
+        WATERFALL_TOP = SPECTRUM_BOTTOM + 6;
+        WATERFALL_BOTTOM = CHANNEL_LABEL_Y - 4;
+    }
+    WATERFALL_ROWS = WATERFALL_BOTTOM - WATERFALL_TOP;
+}
+
+// Allocate the spectrum + waterfall buffers sized to the computed layout. PSRAM when available
+// (Porkocalc), otherwise internal RAM (Cardputer, where they are small). Allocated once at init.
+static void* specAlloc(size_t n) {
+#ifdef BOARD_HAS_PSRAM
+    void* p = ps_malloc(n);
+    if (p) return p;
+#endif
+    return malloc(n);
+}
+static bool allocSpectrumBuffers() {
+    if (spectrumBuffer) return true;  // already allocated
+    const size_t specN = (size_t)SPECTRUM_WIDTH;
+    const size_t wfN = (size_t)WATERFALL_ROWS * SPECTRUM_WIDTH;
+    spectrumBuffer = (int8_t*)specAlloc(specN);
+    spectrumPersist = (int8_t*)specAlloc(specN);
+    spectrumPeak = (int8_t*)specAlloc(specN);
+    waterfallBuffer = (uint8_t*)specAlloc(wfN);
+    bool ok = spectrumBuffer && spectrumPersist && spectrumPeak && waterfallBuffer;
+    if (!ok) {
+        Serial.printf("[SPECTRUM] buffer alloc FAILED (spec=%u wf=%u bytes)\n",
+                      (unsigned)specN, (unsigned)wfN);
+    }
+    return ok;
+}
+
 void SpectrumMode::init() {
+    computeSpectrumLayout();
+    allocSpectrumBuffers();
     networks.clear();
     networks.shrink_to_fit();  // Release vector capacity
     renderCount = 0;
@@ -284,10 +348,10 @@ void SpectrumMode::init() {
     }
     
     // Initialize spectrum analyzer buffers (analyzer-style rendering)
-    memset(spectrumBuffer, RSSI_MIN, sizeof(spectrumBuffer));
-    memset(spectrumPersist, RSSI_MIN, sizeof(spectrumPersist));
-    memset(spectrumPeak, RSSI_MIN, sizeof(spectrumPeak));
-    memset(waterfallBuffer, 0, sizeof(waterfallBuffer));
+    if (spectrumBuffer)  memset(spectrumBuffer, RSSI_MIN, SPECTRUM_WIDTH);
+    if (spectrumPersist) memset(spectrumPersist, RSSI_MIN, SPECTRUM_WIDTH);
+    if (spectrumPeak)    memset(spectrumPeak, RSSI_MIN, SPECTRUM_WIDTH);
+    if (waterfallBuffer) memset(waterfallBuffer, 0, (size_t)WATERFALL_ROWS * SPECTRUM_WIDTH);
     waterfallWriteRow = 0;
     lastWaterfallUpdate = 0;
 }
@@ -1163,7 +1227,7 @@ void SpectrumMode::updateWaterfall() {
         int intensity = (int)((rssi - RSSI_MIN) * 255 / (RSSI_MAX - RSSI_MIN));
         if (intensity < 0) intensity = 0;
         if (intensity > 255) intensity = 255;
-        waterfallBuffer[waterfallWriteRow][x] = (uint8_t)intensity;
+        waterfallBuffer[waterfallWriteRow * SPECTRUM_WIDTH + x] = (uint8_t)intensity;
     }
     
     // Advance circular buffer write position
@@ -1175,16 +1239,16 @@ void SpectrumMode::drawWaterfall(M5Canvas& canvas) {
     // Draw horizontal separator line above waterfall
     canvas.drawFastHLine(SPECTRUM_LEFT, WATERFALL_TOP - 1, SPECTRUM_WIDTH, COLOR_FG);
     
-    // Draw waterfall rows (oldest at top, newest at bottom)
+    // Draw waterfall rows so it falls DOWNWARD from the spectrum: newest row just under the
+    // analyzer (top), older rows sinking toward the bottom. waterfallWriteRow points to the NEXT
+    // write position, so the newest written row is (waterfallWriteRow - 1).
     for (int row = 0; row < WATERFALL_ROWS; row++) {
-        // Calculate which buffer row to read (circular buffer)
-        // waterfallWriteRow points to NEXT write position, so oldest is at waterfallWriteRow
-        int bufRow = (waterfallWriteRow + row) % WATERFALL_ROWS;
+        int bufRow = (waterfallWriteRow - 1 - row + 2 * WATERFALL_ROWS) % WATERFALL_ROWS;
         int screenY = WATERFALL_TOP + row;
         
         // Draw each pixel in this row
         for (int x = 0; x < SPECTRUM_WIDTH; x++) {
-            uint8_t intensity = waterfallBuffer[bufRow][x];
+            uint8_t intensity = waterfallBuffer[bufRow * SPECTRUM_WIDTH + x];
             
             // Only draw if above noise threshold (intensity > 20 means signal present)
             if (intensity > 20) {

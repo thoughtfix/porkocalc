@@ -615,10 +615,21 @@ void Menu::drawModal(M5Canvas& canvas) {
     uint16_t bg = getColorBG();
     
     // Modal dimensions - Sirloin-style
+    const MenuItem* items = getGroupItems(activeGroup);
+    uint8_t groupSize = getGroupSize(activeGroup);
+    int itemHeight = 16;
     int boxW = 220;
-    int boxH = 90;
-    int boxX = (DISPLAY_W - boxW) / 2;
     int boxY = 20;
+#ifdef PORKOCALC
+    // Grow the popup to fit the group (capped at MODAL_VISIBLE, which is sized to the panel) so the
+    // tall PicoCalc screen shows a whole group at once instead of the Cardputer's fixed 4-row box.
+    int rowsToShow = groupSize < MODAL_VISIBLE ? groupSize : MODAL_VISIBLE;
+    if (rowsToShow < 1) rowsToShow = 1;
+    int boxH = 24 + rowsToShow * itemHeight + 6;
+#else
+    int boxH = 90;
+#endif
+    int boxX = (DISPLAY_W - boxW) / 2;
     
     // Background with border
     canvas.fillRoundRect(boxX, boxY, boxW, boxH, 6, fg);
@@ -633,10 +644,7 @@ void Menu::drawModal(M5Canvas& canvas) {
     canvas.setTextDatum(top_left);
     
     // Items
-    const MenuItem* items = getGroupItems(activeGroup);
-    uint8_t groupSize = getGroupSize(activeGroup);
     int itemStartY = boxY + 24;
-    int itemHeight = 16;
     int itemPadX = 6;
     int textIndent = 10;
     int valueMargin = 14;

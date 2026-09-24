@@ -2,14 +2,19 @@ name: Build
 
 on:
   push:
-    branches: [ main, develop, personality_disorder_innit ]
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        # Porkocalc = the PicoCalc build (fetches the picocalc-esp32 dependency automatically).
+        # m5cardputer = the original M5PorkChop target, kept building so upstream fixes still merge.
+        env: [ picocalc, m5cardputer ]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -19,18 +24,57 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}
+
       - name: Install PlatformIO
         run: |
           python -m pip install --upgrade pip
           pip install platformio
 
-      - name: Build firmware
-        run: |
-          pio run -e m5cardputer
+      - name: Build firmware (${{ matrix.env }})
+        run: pio run -e ${{ matrix.env }}
 
-      - name: Upload firmware artifact
+      # Porkocalc only DISTRIBUTES the PicoCalc firmware. The m5cardputer env is built above purely
+      # as a compile / merge-compatibility check (so upstream M5PorkChop fixes keep merging cleanly),
+      # and is deliberately NOT packaged, uploaded, or released. The Cardputer target belongs to
+      # 0ct0sec's M5PorkChop - get the Cardputer build from the original, not from here. We are a
+      # PicoCalc port, not a competing Cardputer distribution.
+      - name: Package firmware (PicoCalc only)
+        if: matrix.env == 'picocalc'
+        run: |
+          mkdir -p dist
+          cp .pio/build/picocalc/firmware.bin dist/porkocalc-picocalc.bin
+
+      - name: Upload firmware artifact (PicoCalc only)
+        if: matrix.env == 'picocalc'
         uses: actions/upload-artifact@v4
         with:
-          name: firmware
-          path: .pio/build/m5cardputer/firmware.bin
+          name: porkocalc-picocalc
+          path: dist/porkocalc-picocalc.bin
           retention-days: 30
+
+  release:
+    # On a version tag (vX.Y.Z), attach the PicoCalc firmware to a GitHub Release so users can
+    # download and flash directly. Only the PicoCalc build ships - see the note in the build job.
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/porkocalc-picocalc.bin
+          generate_release_notes: true

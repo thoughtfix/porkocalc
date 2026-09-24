@@ -528,7 +528,7 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
     
     // Use animated currentX position (set during transition or at rest)
     int startX = currentX;
-    int startY = 23 + shakeY;  // Apply shake offset (shifted down for XP bar at top)
+    int startY = 23 + shakeY + sceneBottomOffset(canvas);  // shake + bottom-anchor on tall canvases
     int lineHeight = 22;
     
     for (uint8_t i = 0; i < lines; i++) {
@@ -735,7 +735,7 @@ void Avatar::drawGrass(M5Canvas& canvas) {
     canvas.setTextDatum(top_left);
     
     // Draw at bottom of avatar area, full screen width
-    int grassY = 91;  // Below the pig face (at edge of main canvas)
+    int grassY = 91 + sceneBottomOffset(canvas);  // below the pig face (bottom of the main canvas)
     canvas.drawString(grassPattern, 0, grassY);
 }
 
@@ -844,7 +844,7 @@ void Avatar::fillPigBoundingBox(M5Canvas& canvas) {
 
     int boxX = currentX - 25;
     int boxW = 155;  // covers tail + 7 chars + margin
-    int boxY = 11;   // base y (23) minus jump headroom (12)
+    int boxY = 11 + sceneBottomOffset(canvas);   // base y (23) minus jump headroom (12), bottom-anchored
     int boxH = 84;   // stops above grass near y95
 
     // Clamp to screen

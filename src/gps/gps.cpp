@@ -295,6 +295,11 @@ void GPS::getTimeString(char* out, size_t len) {
     }
 }
 
+uint32_t GPS::charsProcessed() {
+    // A plain counter read; a torn read just means the UI shows/hides one frame late. No lock needed.
+    return gps.charsProcessed();
+}
+
 uint32_t GPS::getFixCount() {
     if (mutex == nullptr) return 0;  // FIX: Prevent crash if GPS not initialized
     if (xSemaphoreTake(mutex, 10 / portTICK_PERIOD_MS)) {

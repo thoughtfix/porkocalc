@@ -25,6 +25,14 @@ struct RainDrop {
 };
 static const int RAIN_DROP_COUNT = 25;  // Increased for denser rain
 static RainDrop rainDrops[RAIN_DROP_COUNT] = {{0}};
+// Rain fills the whole main canvas: full width, and from the cloud layer (top) down to just above
+// the grass. These are synced from the live canvas each frame (defaults are the Cardputer's).
+static int rainW = 240;          // canvas width
+static int rainBottomClip = 88;  // 3px above the grass line (grass at 91 + scene offset)
+static inline void syncRainBounds(const M5Canvas& canvas) {
+    rainW = canvas.width();
+    rainBottomClip = 88 + sceneBottomOffset(canvas);
+}
 static bool rainActive = false;
 static bool rainDecided = false;  // Prevents per-frame re-randomization
 static int lastMoodTier = -1;     // Track tier (not raw mood) with hysteresis
@@ -200,9 +208,9 @@ void setRaining(bool active) {
     if (active && !rainActive) {
         // Spawn raindrops staggered across entire screen height for immediate rain
         for (int i = 0; i < RAIN_DROP_COUNT; i++) {
-            rainDrops[i].x = (float)random(0, 240);
+            rainDrops[i].x = (float)random(0, rainW);
             // Distribute drops across visible area (stop above grass at Y=88)
-            rainDrops[i].y = (float)random(16, 85);
+            rainDrops[i].y = (float)random(16, rainBottomClip);
             // Fast rain (5-8 pixels per update)
             rainDrops[i].speed = random(5, 9);
         }
@@ -291,14 +299,14 @@ static void updateRain(uint32_t now) {
         rainDrops[i].x += horizontalDrift;
         
         // Wrap horizontally if drifted off screen
-        if (rainDrops[i].x < 0.0f) rainDrops[i].x += 240.0f;
-        if (rainDrops[i].x >= 240.0f) rainDrops[i].x -= 240.0f;
+        if (rainDrops[i].x < 0.0f) rainDrops[i].x += (float)rainW;
+        if (rainDrops[i].x >= (float)rainW) rainDrops[i].x -= (float)rainW;
         
         // Respawn just below clouds when reaching bottom
         // Grass starts at Y=91, stop rain 3px above it
-        if (rainDrops[i].y >= 88.0f) {
-            rainDrops[i].y = (float)random(16, 23);  // Just below cloud layer
-            rainDrops[i].x = (float)random(0, 240);
+        if (rainDrops[i].y >= (float)rainBottomClip) {
+            rainDrops[i].y = (float)random(16, 23);  // Just below cloud layer (clouds stay at top)
+            rainDrops[i].x = (float)random(0, rainW);
             rainDrops[i].speed = random(5, 9);  // Fast rain
         }
     }
@@ -405,6 +413,11 @@ bool isRaining() {
 
 // === DRAWING ===
 void drawClouds(M5Canvas& canvas, uint16_t colorFG) {
+    syncRainBounds(canvas);
+    // On the tall (PicoCalc) canvas the thin cloud glyph line reads as "morse code" at the very
+    // top and the scrolling ticker owns that strip, so skip the cloud glyphs there. Rain is
+    // unaffected. (Proper wide clouds could be reintroduced lower in the sky later.)
+    if (sceneBottomOffset(canvas) > 0) return;
     // During thunder flash, use inverted color (matches sirloin's getDrawColor)
     uint16_t drawColor = isThunderFlashing() ? getColorBG() : colorFG;
     
@@ -418,6 +431,7 @@ void drawClouds(M5Canvas& canvas, uint16_t colorFG) {
 }
 
 void draw(M5Canvas& canvas, uint16_t colorFG, uint16_t colorBG) {
+    syncRainBounds(canvas);
     // During thunder flash, invert colors for rain/wind (matches sirloin)
     uint16_t drawColor = isThunderFlashing() ? colorBG : colorFG;
     
@@ -432,9 +446,9 @@ void draw(M5Canvas& canvas, uint16_t colorFG, uint16_t colorBG) {
             
             // Draw 6-pixel tall × 2-pixel wide raindrop (slightly taller for visibility)
             for (int dy = 0; dy < 6; dy++) {
-                if (y + dy < 88) {  // Clip 3px above grass (grass starts at Y=91)
+                if (y + dy < rainBottomClip) {  // clip 3px above the grass line
                     canvas.drawPixel(x, y + dy, drawColor);
-                    if (x + 1 < 240) canvas.drawPixel(x + 1, y + dy, drawColor);
+                    if (x + 1 < rainW) canvas.drawPixel(x + 1, y + dy, drawColor);
                 }
             }
         }

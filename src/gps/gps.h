@@ -42,6 +42,9 @@ public:
     // Statistics
     static uint32_t getFixCount();
     static uint32_t getLastFixTime();
+    // Total NMEA characters the parser has processed. 0 == nothing ever arrived, i.e. no GPS module
+    // wired/streaming. Used to auto-hide GPS UI when there's no receiver.
+    static uint32_t charsProcessed();
     
 private:
     static TinyGPSPlus gps;

@@ -1,11 +1,11 @@
 ﻿.pio
 .vscode/
+.DS_Store
 .cache
 .z*
 .con*/
 .cu*
 *.csv
-*.md
 *.txt
 *.bin
 **/build_info.h
@@ -16,3 +16,10 @@ compile_commands.json
 scripts/heap_analyzer.py
 *.ski*
 !./docs/images/*
+
+# Reference clone of lexilexiko/0N3P0rK (never commit it or its tarball)
+0N3P0rK/
+*.tgz
+
+# Scratch build outputs / artifacts stay local, never pushed
+work-artifacts/

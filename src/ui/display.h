@@ -2,16 +2,33 @@
 #pragma once
 
 #include <M5Unified.h>
+#include "layout.h"
 
 // Forward declarations
 enum class PorkchopMode : uint8_t;
 
-// Display layout constants (240x135 screen)
-#define DISPLAY_W 240
-#define DISPLAY_H 135
-#define TOP_BAR_H 14
-#define BOTTOM_BAR_H 14
-#define MAIN_H (DISPLAY_H - TOP_BAR_H - BOTTOM_BAR_H)
+// Display layout constants. These now read from the active board profile (LAYOUT) so all geometry
+// lives in one place - layout_cardputer.h / layout_picocalc.h. See layout.h. The macro names are
+// kept so the existing draw sites don't have to change; a redesign edits the profile, not these.
+#define DISPLAY_W    (LAYOUT.uiW)
+#define DISPLAY_H    (LAYOUT.uiH)
+#define TOP_BAR_H    (LAYOUT.topBarH)
+#define BOTTOM_BAR_H (LAYOUT.bottomBarH)
+#define MAIN_H       (LAYOUT.mainH())
+#define PANEL_W      (LAYOUT.panelW)
+#define PANEL_H      (LAYOUT.panelH)
+#define UI_ORIGIN_X  (LAYOUT.originX())
+#define UI_ORIGIN_Y  (LAYOUT.originY())
+
+// The pig scene (pig art, grass, speech bubble) was laid out for a 107px-tall main canvas (the
+// Cardputer). On a taller canvas the scene is anchored to the BOTTOM, leaving the space above for
+// tickers / notifications / flavor. sceneBottomOffset() is how far to push scene elements down:
+// 0 on the Cardputer (canvas height 107), ~185 on the PicoCalc fullscreen canvas (height 292).
+static constexpr int SCENE_REF_H = 107;
+inline int sceneBottomOffset(const M5Canvas& canvas) {
+    int off = static_cast<int>(canvas.height()) - SCENE_REF_H;
+    return off > 0 ? off : 0;
+}
 
 // Theme structure
 struct PorkTheme {
@@ -40,6 +57,12 @@ extern const PorkTheme THEMES[THEME_COUNT];
 // Dynamic color getters (use these instead of macros)
 uint16_t getColorFG();
 uint16_t getColorBG();
+
+// Battery field text for the top bar and the status ticker. Returns "<n>%" normally, but "N/A"
+// on Porkocalc units whose STM32 keyboard firmware reports a hardcoded battery (version 0). One
+// place so the top bar and ticker never disagree. Returns a pointer to a shared static buffer;
+// use it immediately.
+const char* batteryFieldStr(int level);
 
 // Compatibility macros - redirect to getters
 #define COLOR_BG getColorBG()

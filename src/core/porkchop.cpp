@@ -3,6 +3,7 @@
 #include "porkchop.h"
 #include <M5Cardputer.h>
 #include "../ui/display.h"
+#include "../ui/ticker.h"
 #include "../ui/menu.h"
 #include "../ui/settings_menu.h"
 #include "../ui/captures_menu.h"
@@ -29,6 +30,9 @@
 #include "../web/fileserver.h"
 #include "../audio/sfx.h"
 #include "config.h"
+#ifdef PORKOCALC
+#include <picocalc_pins.h>
+#endif
 #include "heap_health.h"
 #include "xp.h"
 #include "sdlog.h"
@@ -79,7 +83,15 @@ static const uint32_t BOOT_GUARD_WINDOW_MS = 60000;
 
 static PorkchopMode bootModeToPorkchop(BootMode mode) {
     switch (mode) {
+#ifdef PORKOCALC
+        // Porkocalc is a RECON device, not an attack device: it must NEVER auto-boot into an
+        // attack mode. OINK is deauth + sniff, so a config that requests OINK-at-boot is forced to
+        // IDLE. Recon boot modes (DN0HAM = passive recon, WARHOG = wardriving) are still allowed.
+        // This is the only auto-enter-a-mode-at-boot path (bootModeTarget), so this is the choke point.
+        case BootMode::OINK: return PorkchopMode::IDLE;
+#else
         case BootMode::OINK: return PorkchopMode::OINK_MODE;
+#endif
         case BootMode::DNOHAM: return PorkchopMode::DNH_MODE;
         case BootMode::WARHOG: return PorkchopMode::WARHOG_MODE;
         case BootMode::IDLE:
@@ -270,7 +282,22 @@ void Porkchop::init() {
 void Porkchop::update() {
     // Update background network reconnaissance (channel hopping, cleanup)
     NetworkRecon::update();
-    
+
+#ifdef PORKOCALC
+    // The microSD sometimes misses its first mount at boot (SPI SD first-init flakiness). If a card
+    // is present (card-detect low) but not mounted, retry every 5s until it takes, then stop.
+    {
+        static uint32_t lastSdRetry = 0;
+        if (!Config::isSDAvailable() && millis() - lastSdRetry > 5000) {
+            lastSdRetry = millis();
+            pinMode(picocalc::pins::SD_DET, INPUT_PULLUP);
+            if (digitalRead(picocalc::pins::SD_DET) == LOW) {  // card inserted
+                Config::reinitSD();
+            }
+        }
+    }
+#endif
+
     processEvents();
     yield(); // Allow other tasks to run between operations
     handleInput();
@@ -643,6 +670,25 @@ void Porkchop::handleInput() {
     // ESC maps to the key above Tab (shares ` / ~)
     bool escPressed = M5Cardputer.Keyboard.isKeyPressed('`');
 
+#ifdef PORKOCALC
+    // On the PicoCalc, Backspace (right thumb) also exits an active scan mode back to IDLE, since
+    // Esc sits awkwardly left of the D-pad. Limited to the operational modes: menus, settings and
+    // text screens already handle Backspace as "back"/delete themselves, so they're excluded here
+    // to avoid stealing the key from text entry.
+    switch (currentMode) {
+        case PorkchopMode::OINK_MODE:
+        case PorkchopMode::DNH_MODE:
+        case PorkchopMode::WARHOG_MODE:
+        case PorkchopMode::PIGGYBLUES_MODE:
+        case PorkchopMode::SPECTRUM_MODE:
+        case PorkchopMode::BACON_MODE:
+            if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) escPressed = true;
+            break;
+        default:
+            break;
+    }
+#endif
+
     // ESC to return to IDLE from any active mode
     if (escPressed && currentMode != PorkchopMode::IDLE) {
         setMode(PorkchopMode::IDLE);
@@ -788,6 +834,14 @@ void Porkchop::handleInput() {
                     break;
             }
         }
+#ifdef PORKOCALC
+        // G toggles the GPS ticker on/off (on top of auto-hide when no receiver). Edge-detected so a
+        // held key toggles once.
+        static bool gWasPressed = false;
+        bool gPressed = M5Cardputer.Keyboard.isKeyPressed('g') || M5Cardputer.Keyboard.isKeyPressed('G');
+        if (gPressed && !gWasPressed) Ticker::toggleGps();
+        gWasPressed = gPressed;
+#endif
         yield(); // Allow other tasks to run after processing all keys
     }
     

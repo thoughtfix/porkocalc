@@ -96,8 +96,14 @@ void setup() {
     // the SX1262 responds on the bus and SD.begin() fails with f_mount(3).
     // MUST happen before M5Cardputer.begin() — GPIO5 is a keyboard matrix
     // input on v1.1 and begin() needs to reconfigure it as INPUT_PULLUP.
+#ifndef PORKOCALC
     pinMode(5, OUTPUT);
     digitalWrite(5, HIGH);
+#else
+    // Porkocalc: there's no CapLoRa, and GPIO5 is the PicoCalc's onboard-PSRAM clock (shared with
+    // the "Core GPIOs" header pin GP21). The PSRAM is kept deselected by picocalc::safePins(),
+    // which M5Cardputer.begin() runs first thing.
+#endif
 
     // Init M5Cardputer hardware
     auto cfg = M5.config();

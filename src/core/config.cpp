@@ -9,6 +9,9 @@
 #include <SPIFFS.h>
 #include <SPI.h>
 #include <driver/gpio.h>
+#ifdef PORKOCALC
+#include <picocalc_pins.h>
+#endif
 
 // ---- Cardputer microSD wiring (explicit, per Cardputer v1.1 schematic) ----
 // ESP32-S3FN8:
@@ -16,6 +19,22 @@
 //                  G12  G14   G40   G39
 //
 // (Your previous patch used ESP32 “classic” pins + CS=4, which breaks SD on Cardputer/StampS3.)
+#ifdef PORKOCALC
+// Porkocalc (PicoCalc + Waveshare ESP32-S3-Pico) microSD pins, from the picocalc-esp32 pin map.
+// PITFALLS, i.e. why the Cardputer values below must never be used on a PicoCalc:
+//  - Cardputer SD SCK (GPIO40) is the PicoCalc LCD RESET line: every SD clock pulse resets the screen.
+//  - Cardputer SD MISO (GPIO39) is the PicoCalc LCD D/C line.
+//  - Cardputer SD CS (GPIO12) is PicoCalc UART0 RX, which the PicoCalc's USB-serial chip drives
+//    (two outputs fighting).
+//  - FSPI (SPI2) is the bus the LCD uses. The SD card needs its own bus, HSPI (SPI3).
+//  - The SD MISO goes through the ESP32-S3 GPIO matrix. Reads are reliable up to ~40 MHz,
+//    so the 25 MHz first attempt below is fine.
+static constexpr int SD_CS_PIN   = picocalc::pins::SD_CS;    // GPIO41 (Pico GP17)
+static constexpr int SD_MOSI_PIN = picocalc::pins::SD_MOSI;  // GPIO2  (Pico GP19)
+static constexpr int SD_MISO_PIN = picocalc::pins::SD_MISO;  // GPIO42 (Pico GP16)
+static constexpr int SD_SCK_PIN  = picocalc::pins::SD_SCK;   // GPIO1  (Pico GP18)
+static SPIClass sdSPI(HSPI);
+#else
 static constexpr int SD_CS_PIN   = 12;  // CS
 static constexpr int SD_MOSI_PIN = 14;  // MOSI
 static constexpr int SD_MISO_PIN = 39;  // MISO
@@ -26,6 +45,7 @@ static constexpr int SD_SCK_PIN  = 40;  // SCK/CLK
 // In practice, Arduino-ESP32/PlatformIO combos vary; using FSPI with explicit
 // pins is the most reliable on Cardputer builds.
 static SPIClass sdSPI(FSPI);
+#endif
 static bool sdSpiBegun = false;
 
 // Static member initialization
@@ -192,8 +212,9 @@ static void extractBlob(const ConfigBlob& b, GPSConfig& gps, WiFiConfig& wifi,
     if (gps.source == GPSSource::CAP_LORA) {
         gps.rxPin = 15; gps.txPin = 13;
     } else if (gps.source == GPSSource::GROVE) {
-        gps.rxPin = 1;  gps.txPin = 2;
+        gps.rxPin = GrovePins::RX;  gps.txPin = GrovePins::TX;
     }
+    enforceBoardGpsPins(gps);
 
     wifi.channelHopInterval   = b.channelHopInterval;
     wifi.spectrumHopInterval  = b.spectrumHopInterval;
@@ -508,15 +529,16 @@ bool Config::applyJson(const JsonDocument& doc) {
             gpsConfig.rxPin = 15;  // Cap LoRa868 GPS RX
             gpsConfig.txPin = 13;  // Cap LoRa868 GPS TX
         } else if (gpsConfig.source == GPSSource::GROVE) {
-            gpsConfig.rxPin = 1;   // Grove GPS RX
-            gpsConfig.txPin = 2;   // Grove GPS TX
+            gpsConfig.rxPin = GrovePins::RX;   // Grove GPS RX
+            gpsConfig.txPin = GrovePins::TX;   // Grove GPS TX
         } else {
             // CUSTOM: load pins from config
-            gpsConfig.rxPin = doc["gps"]["rxPin"] | 1;
-            gpsConfig.txPin = doc["gps"]["txPin"] | 2;
+            gpsConfig.rxPin = doc["gps"]["rxPin"] | GrovePins::RX;
+            gpsConfig.txPin = doc["gps"]["txPin"] | GrovePins::TX;
         }
+        enforceBoardGpsPins(gpsConfig);
 
-        gpsConfig.baudRate = doc["gps"]["baudRate"] | 115200;
+        gpsConfig.baudRate = doc["gps"]["baudRate"] | GPS_DEFAULT_BAUD;
         gpsConfig.updateInterval = doc["gps"]["updateInterval"] | 5;
         gpsConfig.sleepTimeMs = doc["gps"]["sleepTimeMs"] | 5000;
         gpsConfig.powerSave = doc["gps"]["powerSave"] | true;

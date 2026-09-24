@@ -29,18 +29,60 @@ namespace CapLoraPins {
     static constexpr uint8_t GPS_TX     = 13;  // GPS UART TX (default FSPIQ IOMUX!)
 }
 
+// Pins for GPSSource::GROVE, the board's standard GPS connection.
+#ifdef PORKOCALC
+// Porkocalc (ClockworkPi PicoCalc + Waveshare ESP32-S3-Pico): the GPS plugs into the PicoCalc's
+// external "Core GPIOs" side header, so it can be attached and removed without opening the case.
+//   GPS TX -> header GP28 = ESP32-S3 GPIO9  (the only header pin NOT shared with the PicoCalc's
+//                                           onboard PSRAM chip, so it's the cleanest input)
+//   GPS RX <- header GP5  = ESP32-S3 GPIO16 (shared with the PSRAM's IO3/HOLD line; harmless
+//                                           while the PSRAM chip select, GPIO4, is held high)
+//   Power: the same header's 3V3_OUT and GND.
+// PITFALL: the Cardputer's Grove GPS pins (G1/G2) are the PicoCalc's SD card SCK/MOSI. A GPS
+// UART there would break the SD card, so these pins must never be used for GPS on a PicoCalc.
+// TODO(gps): field-test a real satellite lock outdoors + confirm wardriving writes location-tagged
+// WiGLE rows end-to-end. Raw NMEA feed on these pins is verified; a full fix is not yet.
+namespace GrovePins {
+    static constexpr uint8_t RX = 9;
+    static constexpr uint8_t TX = 16;
+}
+static constexpr uint32_t GPS_DEFAULT_BAUD = 9600;    // NEO-6M modules ship at 9600
+#else
+namespace GrovePins {
+    static constexpr uint8_t RX = 1;    // Cardputer Grove port G1
+    static constexpr uint8_t TX = 2;    // Cardputer Grove port G2
+}
+static constexpr uint32_t GPS_DEFAULT_BAUD = 115200;  // 115200 for most modern GPS modules
+#endif
+
 // GPS power management settings
 struct GPSConfig {
     bool enabled = true;
     GPSSource source = GPSSource::GROVE;  // GPS module source (auto-selects pins)
-    uint8_t rxPin = 1;              // G1 for Grove GPS, G15 for Cap LoRa868 (auto-set from source)
-    uint8_t txPin = 2;              // G2 for Grove GPS, G13 for Cap LoRa868 (auto-set from source)
-    uint32_t baudRate = 115200;     // 115200 for most modern GPS modules
+    uint8_t rxPin = GrovePins::RX;  // G1 for Grove GPS, G15 for Cap LoRa868 (auto-set from source)
+    uint8_t txPin = GrovePins::TX;  // G2 for Grove GPS, G13 for Cap LoRa868 (auto-set from source)
+    uint32_t baudRate = GPS_DEFAULT_BAUD;
     uint16_t updateInterval = 5;        // Seconds between GPS updates
     uint16_t sleepTimeMs = 5000;        // Sleep duration when stationary
     bool powerSave = true;
     int8_t timezoneOffset = 0;          // Hours offset from UTC (-12 to +14)
 };
+
+// Forces GPS settings the current board can safely use. Call after loading config and after any
+// settings change. No-op on the Cardputer.
+inline void enforceBoardGpsPins(GPSConfig& gps) {
+#ifdef PORKOCALC
+    // PITFALL: a config file saved on a Cardputer (or edited by hand) can carry CAP_LORA or CUSTOM
+    // pins. On a PicoCalc those land on LCD, SD, or PSRAM lines: the Cap LoRa868 pins 13/15 are
+    // PSRAM data lines, and its LoRa control pins 3/4/5/6 are the S3-Pico's USB sense, PSRAM CS,
+    // PSRAM SCK, and SD card-detect. So Porkocalc always uses the side-header GPS pins.
+    gps.source = GPSSource::GROVE;
+    gps.rxPin = GrovePins::RX;
+    gps.txPin = GrovePins::TX;
+#else
+    (void)gps;
+#endif
+}
 
 // ML data collection mode
 enum class MLCollectionMode : uint8_t {
