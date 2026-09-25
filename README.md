@@ -23,7 +23,7 @@ All of this comes with no warranty, especially those untested bits. See [DISCLAI
 
 Porkocalc is a **port**, not a rewrite. The pig, the WiFi/BLE recon, the wardriving, the spectrum
 analyzer - all of that adapted from **0ct0's M5PorkChop** (please [star the original](https://github.com/0ct0sec/M5PORKCHOP)).
-What Porkocalc adds is a board target that runs it on the PicoCalc's 320×320 screen and 67-key
+What Porkocalc adds is a board target that runs it on the PicoCalc's 320x320 screen and 67-key
 keyboard via the [`picocalc-esp32`](https://github.com/thoughtfix/picocalc-esp32) driver + Cardputer
 compatibility layer. It is a **recon device, not an attack device** - it never auto-boots into an
 attack mode.
@@ -33,7 +33,7 @@ attack mode.
 
 ## What's different on the PicoCalc
 
-- Full-screen 320×320 layout: status/detection tickers up top, the pig anchored at the bottom, a
+- Full-screen 320x320 layout: status/detection tickers up top, the pig anchored at the bottom, a
   fullscreen spectrum + downward waterfall.
 - OPTIONAL GPS on the external side header (attach/remove without opening the case). 
 - Recon-only: attack modes never auto-start.
@@ -55,7 +55,7 @@ is pulled in automatically by PlatformIO (see `platformio.ini`). To develop both
 side, point that dependency at a local checkout - details in `platformio.ini`.
 
 - **Known issues & TODO:** [KNOWN_ISSUES.md](KNOWN_ISSUES.md) (GPS field test, battery gauge - the honest list)
-- **Credits:** [CREDITS.md](CREDITS.md) · **License:** MIT ([LICENSE](LICENSE)) - same as upstream
+- **Credits:** [CREDITS.md](CREDITS.md). **License:** MIT ([LICENSE](LICENSE)), same as upstream
 - **The driver library:** [picocalc-esp32](https://github.com/thoughtfix/picocalc-esp32)
 
 ---
